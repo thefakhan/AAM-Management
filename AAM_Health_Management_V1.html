@@ -23,6 +23,13 @@ textarea{min-height:75px;resize:vertical}.full{grid-column:1/-1}
 .record{border:1px solid #dde4eb;border-radius:10px;padding:12px;margin:8px 0}.record strong{font-size:16px}
 .badge{display:inline-block;padding:4px 7px;border-radius:12px;background:#e8f4ff;color:#1769aa;font-size:12px}
 @media(max-width:600px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.stats{grid-template-columns:repeat(2,1fr)}}
+
+.record .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.record .row button{flex:1;min-width:90px}
+.modal{display:none;position:fixed;inset:0;background:#0008;z-index:20;padding:14px;overflow:auto}.modal.show{display:block}
+.modalBox{background:white;max-width:850px;margin:20px auto;border-radius:15px;padding:18px}
+.detailGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.detail{background:#f6f8fa;padding:9px;border-radius:8px}
+.detail b{display:block;font-size:12px;color:#667085;margin-bottom:3px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+@media(max-width:600px){.detailGrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -114,9 +121,18 @@ textarea{min-height:75px;resize:vertical}.full{grid-column:1/-1}
 </section>
 
 <section id="records" class="page">
-<div class="card"><h2>Saved Records</h2><input id="search" placeholder="Search by name, village or house no." oninput="renderRecords()"><div id="recordList"></div></div>
+<div class="card"><h2>Saved Records</h2><input id="search" placeholder="Search by name, village or house no." oninput="renderRecords()">
+<div class="toolbar">
+<button class="btn primary" type="button" onclick="exportCSV()">Export Excel/CSV</button>
+<button class="btn secondary" type="button" onclick="backupJSON()">Backup JSON</button>
+<button class="btn secondary" type="button" onclick="document.getElementById('restoreFile').click()">Restore Backup</button>
+<input id="restoreFile" type="file" accept=".json" style="display:none" onchange="restoreJSON(event)">
+</div>
+<div id="recordList"></div></div>
 </section>
-</main>
+<div id="recordModal" class="modal" onclick="if(event.target===this)closeModal()">
+<div class="modalBox"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Family Record</h2>
+<button class="btn secondary" type="button" onclick="closeModal()">Close</button></div><div id="modalContent"></div></div></div></main>
 
 <script>
 const KEY='aam_health_records_v1';
@@ -159,8 +175,10 @@ function formObject(){
  fd.forEach((v,k)=>o[k]=v);o.members=collectMembers();o.id=Date.now();o.createdAt=new Date().toISOString();return o
 }
 document.getElementById('healthForm').addEventListener('submit',e=>{
- e.preventDefault();const o=formObject();const r=getRecords();r.push(o);saveRecords(r);
- alert('Registration saved successfully on this device.');e.target.reset();resetMembers();updateDashboard();showPage('records',document.querySelectorAll('nav button')[2]);
+ e.preventDefault();const o=formObject();const r=getRecords();const editId=e.target.dataset.editId;
+ if(editId){o.id=Number(editId);const i=r.findIndex(x=>Number(x.id)===Number(editId));if(i>=0)r[i]=o;else r.push(o);delete e.target.dataset.editId;alert('Registration updated successfully.')}
+ else{r.push(o);alert('Registration saved successfully on this device.')}
+ saveRecords(r);e.target.reset();resetMembers();updateDashboard();showPage('records',document.querySelectorAll('nav button')[2]);
 });
 function resetMembers(){members=[];document.getElementById('members').innerHTML='';addMember()}
 function updateDashboard(){
@@ -172,15 +190,81 @@ function updateDashboard(){
 function renderRecords(){
  const q=(document.getElementById('search')?.value||'').toLowerCase(),r=getRecords();
  const list=document.getElementById('recordList');list.innerHTML='';
- r.filter(x=>(x.head+' '+x.village+' '+x.houseNo).toLowerCase().includes(q)).reverse().forEach(x=>{
+ r.filter(x=>(String(x.head||'')+' '+String(x.village||'')+' '+String(x.houseNo||'')).toLowerCase().includes(q)).reverse().forEach(x=>{
   const d=document.createElement('div');d.className='record';
-  d.innerHTML=`<strong>${esc(x.head||'Unnamed Family')}</strong><br><span class="badge">${esc(x.village||'')}</span> House: ${esc(x.houseNo||'-')}<br>Members: ${(x.members||[]).length}<div class="actions"><button class="btn danger" onclick="deleteRecord(${x.id})">Delete</button></div>`;
-  list.appendChild(d)
- });if(!list.children.length)list.innerHTML='<p>No records found.</p>'
+  d.innerHTML=`<strong>${esc(x.head||'Unnamed Family')}</strong><br>
+  <span class="badge">${esc(x.village||'')}</span> House: ${esc(x.houseNo||'-')}<br>
+  Members: ${(x.members||[]).length}
+  <div class="row">
+    <button class="btn primary" type="button" onclick="viewRecord(${x.id})">View</button>
+    <button class="btn secondary" type="button" onclick="editRecord(${x.id})">Edit</button>
+    <button class="btn danger" type="button" onclick="deleteRecord(${x.id})">Delete</button>
+  </div></div>`;
+  list.appendChild(d);
+ });
+ if(!list.children.length)list.innerHTML='<p>No records found.</p>';
 }
-function deleteRecord(id){if(confirm('Delete this registration?')){saveRecords(getRecords().filter(x=>x.id!==id));renderRecords();updateDashboard()}}
-function esc(v){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-resetMembers();updateDashboard();
-</script>
-</body>
-</html>
+function deleteRecord(id){
+ if(!confirm('Delete this registration permanently?')) return;
+ const before=getRecords(), after=before.filter(x=>Number(x.id)!==Number(id));
+ if(after.length===before.length){alert('Record not found.');return}
+ saveRecords(after); renderRecords(); updateDashboard(); alert('Record deleted successfully.');
+}
+function detail(k,v){return `<div class="detail"><b>${esc(k)}</b>${esc(v||'-')}</div>`}
+function viewRecord(id){
+ const x=getRecords().find(r=>Number(r.id)===Number(id));
+ if(!x){alert('Record not found.');return}
+ let s=`<h2>${esc(x.head||'Unnamed Family')}</h2><div class="detailGrid">
+ ${detail('Village',x.village)}${detail('House No.',x.houseNo)}${detail('DOB / Age',x.dobAge)}${detail('Gender',x.gender)}
+ ${detail('Religion',x.religion)}${detail('Caste',x.caste)}${detail('Ration Card',x.ration)}${detail('Aadhaar Card',x.aadhar)}
+ ${detail('Aadhaar No.',x.aadharNo)}${detail('ABHA Card',x.abha)}${detail('ABHA No.',x.abhaNo)}
+ ${detail('Ayushman Card',x.ayushman)}${detail('Ayushman No.',x.ayushmanNo)}</div>
+ <h3>Family Members</h3>`;
+ (x.members||[]).forEach((m,i)=>{s+=`<div class="record"><strong>Member ${i+1}: ${esc(m.name||'-')}</strong><div class="detailGrid">
+ ${detail('DOB / Age',m.dobAge)}${detail('Gender',m.gender)}${detail('Relation',m.relation)}${detail('Mobile',m.mobile)}
+ ${detail('ABHA',m.abha)}${detail('Occupation',m.occupation)}${detail('Education',m.education)}${detail('Disability',m.disability)}
+ ${detail('Existing Disease',m.disease)}${detail('Current Treatment',m.treatment)}</div></div>`});
+ s+=`<h3>ANC Details</h3><div class="detailGrid">
+ ${detail('Pregnancy Registration',x.pregnancy)}${detail('LMP',x.lmp)}${detail('EDD',x.edd)}${detail('Gravida / Para',x.gravidaPara)}
+ ${detail('HRP',x.hrp)}${detail('ANC Visit',x.ancVisit)}${detail('BP',x.bp)}${detail('Hb',x.hb)}${detail('Height',x.height)}
+ ${detail('Weight',x.weight)}${detail('RBS',x.rbs)}${detail('Blood Group',x.bloodGroup)}${detail('Td',x.td)}
+ ${detail('IFA / Calcium',x.ifaCalcium)}${detail('Pregnancy Outcome',x.pregnancyOutcome)}</div>
+ <h3>PNC / Delivery</h3><div class="detailGrid">${detail('Place of Delivery',x.deliveryPlace)}${detail('Type',x.deliveryType)}
+ ${detail('PNC Visit',x.pncVisit)}${detail('Bleeding',x.bleeding)}${detail('BP',x.pncBp)}${detail('Fever',x.fever)}
+ ${detail('Infection',x.infection)}${detail('IFA / Calcium',x.pncIfa)}${detail('Family Planning',x.familyPlanning)}${detail('Counselling',x.counselling)}</div>
+ <h3>Newborn</h3><div class="detailGrid">${detail('Birth Date',x.birthDate)}${detail('Sex',x.newbornSex)}
+ ${detail('Place of Birth',x.birthPlace)}${detail('Birth Weight',x.birthWeight)}${detail('Breastfeeding',x.breastfeeding)}
+ ${detail('BCG',x.bcg)}${detail('OPV 0',x.opv0)}${detail('Hep B',x.hepB)}${detail('Newborn Examination',x.newbornExam)}
+ ${detail('Danger Sign',x.dangerSign)}${detail('Home Visit',x.homeVisit)}${detail('Referral',x.referral)}</div>
+ <h3>Immunization</h3><div class="detailGrid">${detail('BCG',x.imBcg)}${detail('OPV',x.imOpv)}
+ ${detail('Pentavalent',x.pentavalent)}${detail('Rota',x.rota)}${detail('IPV',x.ipv)}${detail('PCV',x.pcv)}
+ ${detail('MR',x.mr)}${detail('DPT / Booster',x.dpt)}${detail('Td',x.imTd)}${detail('Due Dose',x.dueDose)}
+ ${detail('Given Dose',x.givenDose)}${detail('Missed',x.missed)}${detail('Left Out',x.leftOut)}${detail('Drop Out',x.dropOut)}${detail('AEFI',x.aefi)}</div>`;
+ document.getElementById('modalContent').innerHTML=s;document.getElementById('recordModal').classList.add('show');
+}
+function closeModal(){document.getElementById('recordModal').classList.remove('show')}
+function editRecord(id){
+ const x=getRecords().find(r=>Number(r.id)===Number(id));if(!x){alert('Record not found.');return}
+ const form=document.getElementById('healthForm');form.reset();form.dataset.editId=x.id;
+ Object.keys(x).forEach(k=>{const el=document.querySelector(`#healthForm [name="${CSS.escape(k)}"]`);if(el)el.value=x[k]??''});
+ document.getElementById('members').innerHTML='';members=[];(x.members||[]).forEach(m=>addMember(m));
+ closeModal();document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('registration').classList.add('active');
+ document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('nav button')[1].classList.add('active');window.scrollTo(0,0);
+}
+function exportCSV(){
+ const r=getRecords();if(!r.length){alert('No records to export.');return}
+ const rows=[];
+ r.forEach(x=>{
+  const base={ID:x.id,Village:x.village,House_No:x.houseNo,Head_of_Family:x.head,DOB_Age:x.dobAge,Gender:x.gender,
+  Religion:x.religion,Caste:x.caste,Ration_Card:x.ration,Aadhaar_Card:x.aadhar,Aadhaar_No:x.aadharNo,ABHA_Card:x.abha,ABHA_No:x.abhaNo,
+  Ayushman_Card:x.ayushman,Ayushman_No:x.ayushmanNo,Pregnancy_Registration:x.pregnancy,LMP:x.lmp,EDD:x.edd,Gravida_Para:x.gravidaPara,
+  HRP:x.hrp,ANC_Visit:x.ancVisit,BP:x.bp,Hb:x.hb,Height:x.height,Weight:x.weight,RBS:x.rbs,Blood_Group:x.bloodGroup,Td:x.td,
+  IFA_Calcium:x.ifaCalcium,Pregnancy_Outcome:x.pregnancyOutcome,Delivery_Place:x.deliveryPlace,Delivery_Type:x.deliveryType,PNC_Visit:x.pncVisit,
+  Bleeding:x.bleeding,PNC_BP:x.pncBp,Fever:x.fever,Infection:x.infection,PNC_IFA_Calcium:x.pncIfa,Family_Planning:x.familyPlanning,
+  Counselling:x.counselling,Birth_Date:x.birthDate,Newborn_Sex:x.newbornSex,Birth_Place:x.birthPlace,Birth_Weight:x.birthWeight,
+  Breastfeeding:x.breastfeeding,Newborn_BCG:x.bcg,OPV_0:x.opv0,Hep_B_Birth:x.hepB,Newborn_Examination:x.newbornExam,Danger_Sign:x.dangerSign,
+  Home_Visit:x.homeVisit,Referral:x.referral,Im_BCG:x.imBcg,Im_OPV:x.imOpv,Pentavalent:x.pentavalent,Rota:x.rota,IPV:x.ipv,PCV:x.pcv,MR:x.mr,
+  DPT_Booster:x.dpt,Im_Td:x.imTd,Due_Dose:x.dueDose,Given_Dose:x.givenDose,Missed:x.missed,Left_Out:x.leftOut,Drop_Out:x.dropOut,AEFI:x.aefi};
+  const ms=x.members||[];
+  if(!ms.length)rows.push({...base,Member_Name:'',Member_DOB_Age:'',Member_Gender:'',Relation:'',Mobile:'',Member_ABHA:'',Occupation:'',Education:'',Disability:'',Existing_Disease:'',Current_Treatment:''});
+  else ms.forEach(m=>rows.push({...base,Member_Name:m
