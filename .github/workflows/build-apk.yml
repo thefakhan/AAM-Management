@@ -32,59 +32,41 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Extract final project
+      - name: Extract V5 project
         run: |
           ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: Project ZIP not found"
+            echo "ERROR: V5 ZIP not found"
             exit 1
           fi
 
-          rm -rf app project
-          mkdir project
+          rm -rf app build.gradle settings.gradle gradle.properties
+          mkdir -p project
 
           unzip -q "$ZIP" -d project
-          cp -rf project/. .
 
-          echo "Final project:"
-          find app -maxdepth 6 -type f | sort
+          ROOT=$(find project -type d -name app | head -n 1)
 
-      - name: Fix Android build configuration
+          if [ -z "$ROOT" ]; then
+            echo "ERROR: app folder not found inside ZIP"
+            exit 1
+          fi
+
+          PROJECT_ROOT=$(dirname "$ROOT")
+
+          cp -rf "$PROJECT_ROOT"/. .
+
+          echo "Using project:"
+          pwd
+          find app -maxdepth 8 -type f | sort
+
+      - name: Verify V5 HTML
         run: |
-          cat > app/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-          }
-
-          android {
-              namespace 'com.aam.health'
-              compileSdk 35
-
-              defaultConfig {
-                  applicationId 'com.aam.health'
-                  minSdk 23
-                  targetSdk 35
-                  versionCode 1
-                  versionName '1.0'
-              }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
-          }
-
-          dependencies {
-              implementation 'androidx.core:core-ktx:1.15.0'
-              implementation 'androidx.appcompat:appcompat:1.7.0'
-          }
-          EOF
+          test -f app/src/main/assets/index.html
+          echo "V5 index.html found"
+          grep -q "AAM Health Management" app/src/main/assets/index.html
+          echo "V5 HTML verified"
 
       - name: Build APK
         run: |
@@ -93,5 +75,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AAM-Health-Management-APK
+          name: AAM-Health-Management-V5-APK
           path: app/build/outputs/apk/debug/app-debug.apk
