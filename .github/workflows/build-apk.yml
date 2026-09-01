@@ -41,13 +41,50 @@ jobs:
             exit 1
           fi
 
+          rm -rf app project
           mkdir project
+
           unzip -q "$ZIP" -d project
+          cp -rf project/. .
 
-          cp -r project/* . 2>/dev/null || true
+          echo "Final project:"
+          find app -maxdepth 6 -type f | sort
 
-          echo "Project files:"
-          find . -maxdepth 4 -type f | sort
+      - name: Fix Android build configuration
+        run: |
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.aam.health'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.aam.health'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.15.0'
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+          }
+          EOF
 
       - name: Build APK
         run: |
