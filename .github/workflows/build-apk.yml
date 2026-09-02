@@ -1,4 +1,4 @@
-name: Build AAM Health Management APK
+name: Build KanchanCare APK
 
 on:
   workflow_dispatch:
@@ -32,17 +32,18 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Find and extract V5 ZIP
-        shell: bash
+      - name: Extract KanchanCare V5
         run: |
-          ZIP=$(find . -maxdepth 1 -type f -name "AAM_Health_Management_V5*.zip" | head -n 1)
+          set -e
 
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: V5 ZIP not found in repository root."
+          ZIP="KanchanCare_V5_FINAL.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "ERROR: $ZIP not found in repository root."
+            echo "Files in repository:"
+            ls -la
             exit 1
           fi
-
-          echo "Using: $ZIP"
 
           rm -rf extracted
           mkdir extracted
@@ -52,7 +53,8 @@ jobs:
           APP_DIR=$(find extracted -type d -path "*/app" | head -n 1)
 
           if [ -z "$APP_DIR" ]; then
-            echo "ERROR: app folder not found inside V5 ZIP."
+            echo "ERROR: app folder not found inside ZIP."
+            find extracted -maxdepth 5 -type f | sort
             exit 1
           fi
 
@@ -60,10 +62,25 @@ jobs:
 
           cp -rf "$PROJECT_DIR"/. .
 
-          echo "Project extracted successfully."
+          echo "KanchanCare V5 project extracted."
 
-      - name: Fix Java and Kotlin JVM target
-        shell: bash
+      - name: Verify V5 files
+        run: |
+          set -e
+
+          echo "Checking required files..."
+
+          test -f app/build.gradle
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/assets/index.html
+
+          echo "Checking logo files..."
+
+          find app/src/main -type f | sort
+
+          echo "V5 files verified successfully."
+
+      - name: Force Java 17 compatibility
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -82,22 +99,15 @@ jobs:
               )
 
           p.write_text(text)
+          print(p.read_text())
           PY
 
-      - name: Verify project
-        run: |
-          test -f app/build.gradle
-          test -f app/src/main/AndroidManifest.xml
-          test -f app/src/main/assets/index.html
-
-          echo "Project verification successful."
-
-      - name: Build APK
+      - name: Build KanchanCare APK
         run: |
           gradle assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Upload KanchanCare APK
         uses: actions/upload-artifact@v4
         with:
-          name: AAM-Health-Management-V5-APK
+          name: KanchanCare-V5-APK
           path: app/build/outputs/apk/debug/app-debug.apk
